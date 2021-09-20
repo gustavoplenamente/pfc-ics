@@ -1,4 +1,4 @@
-from ics.ics import ICS
+from ics import ICS
 
 
 def main():
