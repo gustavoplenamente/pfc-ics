@@ -12,3 +12,8 @@
 # Python
 #--------
 __pycache__
+
+#----------
+# Datasets
+#----------
+/datasets
