@@ -1,0 +1,14 @@
+#---------
+# PyCharm
+#---------
+.idea
+
+#-----------------
+# ipynb notebooks
+#-----------------
+.ipynb_checkpoints
+
+#--------
+# Python
+#--------
+__pycache__
