@@ -15,7 +15,7 @@ class ICS:
         self.__users = get_dataset("users.csv")
         self.__news = get_dataset("2_news.csv")
         self.__news_users = get_dataset("3_post.csv")
-        self.__users_followings = get_dataset("user_following.csv")
+        self.__users_followings = get_dataset("userFollowingNewId.csv")
 
         self.__smoothing = laplace_smoothing
         self.__omega = omega
