@@ -21,31 +21,31 @@ class ICS:
         self.__omega = omega
         self.__news_shared_threshold = news_shared_threshold
 
-    def __init_params(self, test_size=0.3):
+    def __init_params(self, test_size):
 
         news = self.__news[self.__news['ground_truth_label'].notnull()]
         if not len(news.index):
-            return 0
+            raise Exception("No news provided")
 
-        # divide 'self.__news_users' em treino e teste.
+        # divide 'self.__news_users' in train and test
         labels = news["ground_truth_label"]
         self.__X_train_news, self.__X_test_news, _, _ = train_test_split(news, labels, test_size=test_size,
                                                                          stratify=labels)
 
-        # # armazena em 'self.__train_news_users' as notícias compartilhadas por cada usuário.
+        # store in 'self.__train_news_users' the news posted by each user
         self.__train_news_users = pd.merge(self.__X_train_news, self.__news_users, left_on="id_news",
                                            right_on="id_news")
         self.__test_news_users = pd.merge(self.__X_test_news, self.__news_users, left_on="id_news", right_on="id_news")
 
-        # conta a qtde de noticias verdadeiras e falsas presentes no conjunto de treino.
+        # count fake and not fake news in the train dataset
         self.__qtd_V = self.__news["ground_truth_label"].value_counts()[0]
         self.__qtd_F = self.__news["ground_truth_label"].value_counts()[1]
 
-        # filtra apenas os usuários que não estão em ambos os conjuntos de treino e teste.
+        # filter users which are in both train and test datasets
         self.__train_news_users = self.__train_news_users[
             self.__train_news_users["id_social_media_account"].isin(self.__test_news_users["id_social_media_account"])]
 
-        # inicializa os parâmetros dos usuários.
+        # initialize users parameters
         totR = 0
         totF = 0
         alphaN = totR + self.__smoothing
@@ -62,32 +62,30 @@ class ICS:
         self.__users["probUmBetaN"] = probUmBetaN
         self.__users["isAccurate"] = False
 
-        return 1
-
     def __assess(self):
         """
-        etapa de avaliação: avalia a notícia com base nos parâmetros de cada usuário obtidos na etapa de treinamento.
+        Assessment step: assess news based on each user parameters obtained on training step
         """
         predicted_labels = []
-        unique_id_news = self.__test_news_users["id_news"].unique()
+        unique_news_ids = self.__test_news_users["id_news"].unique()
 
-        for newsId in unique_id_news:
-            # recupera os ids de usuário que compartilharam a notícia representada por 'newsId'.
-            usersWhichSharedTheNews = list(
-                self.__news_users["id_social_media_account"].loc[self.__news_users["id_news"] == newsId])
+        for news_id in unique_news_ids:
+            # get the ids of users who posted the news represented by 'news_id'
+            users_which_shared_the_news = list(
+                self.__news_users["id_social_media_account"].loc[self.__news_users["id_news"] == news_id])
 
             productAlphaN = 1.0
             productUmAlphaN = 1.0
             productBetaN = 1.0
             productUmBetaN = 1.0
 
-            for userId in usersWhichSharedTheNews:
-                user_prob_alpha, user_prob_um_beta = self.get_user_probs(userId)
+            for user_id in users_which_shared_the_news:
+                user_prob_alpha, user_prob_um_beta = self.get_user_probs(user_id)
 
                 productAlphaN = productAlphaN * user_prob_alpha
                 productUmBetaN = productUmBetaN * user_prob_um_beta
 
-            # inferência bayesiana
+            # bayesian inference
             reputation_news_tn = (self.__omega * productAlphaN * productUmAlphaN) * 100
             reputation_news_fn = ((1 - self.__omega) * productBetaN * productUmBetaN) * 100
 
@@ -96,63 +94,58 @@ class ICS:
             else:
                 predicted_labels.append(1)
 
-        # mostra os resultados da matriz de confusão e acurácia.
+        # print the results of the confusion matrix and accuracy
         gt = self.__X_test_news["ground_truth_label"].tolist()
         print(confusion_matrix(gt, predicted_labels))
         print(accuracy_score(gt, predicted_labels))
 
     def fit(self, test_size=0.3):
         """
-        Etapa de treinamento: calcula os parâmetros de cada usuário a partir do Implict Crowd Signals.
+        Training step: calculate the parameters of each user based on Implicit Crowd Signals
         """
-        status_code = self.__init_params(test_size)
-        if not status_code:
-            return 0
+        self.__init_params(test_size)
 
         i = 0
-        users_unique = self.__train_news_users["id_social_media_account"].unique()
-        total = len(users_unique)
+        unique_users = self.__train_news_users["id_social_media_account"].unique()
+        total = len(unique_users)
 
-        for userId in users_unique:
+        for user_id in unique_users:
             i = i + 1
-            print("", end="Progresso do treinamento: {0:.2f}%\r".format(float((i / total) * 100)), flush=True)
+            print("", end="Training progress: {0:.2f}%\r".format(float((i / total) * 100)), flush=True)
 
-            # obtém os labels das notícias compartilhadas por cada usuário.
-            newsSharedByUser = list(self.__train_news_users["ground_truth_label"].loc[
-                                        self.__train_news_users["id_social_media_account"] == userId])
+            # get the labels of news posted by each user
+            news_shared_by_user = list(self.__train_news_users["ground_truth_label"].loc[
+                                        self.__train_news_users["id_social_media_account"] == user_id])
 
-            # calcula a matriz de opinião para cada usuário.
-            totR = newsSharedByUser.count(0)
-            totF = newsSharedByUser.count(1)
+            # calculate the opinion matrix of each user
+            totR = news_shared_by_user.count(0)
+            totF = news_shared_by_user.count(1)
             alphaN = totR + self.__smoothing
             umAlphaN = ((totF + self.__smoothing) / (self.__qtd_F + self.__smoothing)) * (
                         self.__qtd_V + self.__smoothing)
             betaN = (umAlphaN * (totR + self.__smoothing)) / (totF + self.__smoothing)
             umBetaN = totF + self.__smoothing
 
-            # calcula as probabilidades para cada usuário.
+            # calculate probabilities for each user
             probAlphaN = alphaN / (alphaN + umAlphaN)
             probUmAlphaN = 1 - probAlphaN
             probBetaN = betaN / (betaN + umBetaN)
             probUmBetaN = 1 - probBetaN
-            self.__users.loc[self.__users["id_social_media_account"] == userId, "probAlphaN"] = probAlphaN
-            self.__users.loc[self.__users["id_social_media_account"] == userId, "probBetaN"] = probBetaN
-            self.__users.loc[self.__users["id_social_media_account"] == userId, "probUmAlphaN"] = probUmAlphaN
-            self.__users.loc[self.__users["id_social_media_account"] == userId, "probUmBetaN"] = probUmBetaN
-            self.__users.loc[self.__users["id_social_media_account"] == userId, "isAccurate"] = \
-                len(newsSharedByUser) > self.__news_shared_threshold
+            self.__users.loc[self.__users["id_social_media_account"] == user_id, "probAlphaN"] = probAlphaN
+            self.__users.loc[self.__users["id_social_media_account"] == user_id, "probBetaN"] = probBetaN
+            self.__users.loc[self.__users["id_social_media_account"] == user_id, "probUmAlphaN"] = probUmAlphaN
+            self.__users.loc[self.__users["id_social_media_account"] == user_id, "probUmBetaN"] = probUmBetaN
+            self.__users.loc[self.__users["id_social_media_account"] == user_id, "isAccurate"] = \
+                len(news_shared_by_user) > self.__news_shared_threshold
 
         self.__assess()
-        return self.__users
 
     def predict(self, id_news):
         """
-        Classifica uma notícia usando o ICS.
+        Classify news based on Implicit Crowd Signals
         """
 
-        # 17/06/2021
-        # usersWhichSharedTheNews = self.__dao.get_users_which_shared_the_news(id_news)
-        usersWhichSharedTheNews = list(
+        users_which_shared_the_news = list(
             self.__news_users["id_social_media_account"].loc[self.__news_users["id_news"] == id_news])
 
         productAlphaN = 1.0
@@ -160,29 +153,24 @@ class ICS:
         productBetaN = 1.0
         productUmBetaN = 1.0
 
-        for userId in usersWhichSharedTheNews:
+        for userId in users_which_shared_the_news:
             i = self.__users.loc[self.__users["id_social_media_account"] == userId].index[0]
             productAlphaN = productAlphaN * self.__users.at[i, "probAlphaN"]
             productUmBetaN = productUmBetaN * self.__users.at[i, "probUmBetaN"]
 
-        #        for _, row in usersWhichSharedTheNews.iterrows():
-        #            productAlphaN   = productAlphaN  * row["probalphan"]
-        #            productUmBetaN  = productUmBetaN * row["probumbetan"]
-
-        # inferência bayesiana
+        # bayesian inference
         reputation_news_tn = (self.__omega * productAlphaN * productUmAlphaN) * 100
         reputation_news_fn = ((1 - self.__omega) * productBetaN * productUmBetaN) * 100
 
-        # calculando o grau de probabilidade da predição.
+        # calculate probability grade of the prediction
         total = reputation_news_tn + reputation_news_fn
-        prob = 0
 
         if reputation_news_tn >= reputation_news_fn:
             prob = reputation_news_tn / total
-            return 0, prob  # notícia classificada como legítima.
+            return 0, prob  # news classified as not fake
         else:
             prob = reputation_news_fn / total
-            return 1, prob  # notícia classificada como fake.
+            return 1, prob  # news classified as fake
 
     def get_user_probs(self, userId):
         i = self.__users.loc[self.__users["id_social_media_account"] == userId].index[0]
