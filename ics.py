@@ -13,9 +13,9 @@ class ICS:
     def __init__(self, laplace_smoothing=0.01, omega=0.5, news_shared_threshold=5):
 
         self.__users = get_dataset("users.csv")
-        self.__news = get_dataset("2_news.csv")
-        self.__news_users = get_dataset("3_post.csv")
-        self.__users_followings = get_dataset("userFollowingNewId.csv")
+        self.__news = get_dataset("news.csv")
+        self.__news_users = get_dataset("posts.csv")
+        self.__users_followings = get_dataset("follows.csv")
 
         self.__smoothing = laplace_smoothing
         self.__omega = omega
