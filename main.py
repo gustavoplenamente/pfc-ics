@@ -9,8 +9,8 @@ def main():
 
     print("Predicting...")
     prediction, prob = ics.predict(333)
-    print(f"Prediction: \t{prediction}")
-    print("Prob: \t{prob}")
+    print(f"Prediction: {prediction}")
+    print("Prob: {:.2f}%".format(prob * 100))
 
 
 if __name__ == "__main__":

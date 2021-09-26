@@ -1,3 +1,4 @@
+from tqdm import tqdm
 import pandas as pd
 from sklearn.metrics import confusion_matrix, accuracy_score
 from sklearn.model_selection import train_test_split
@@ -27,14 +28,16 @@ class ICS:
         """
         self.__init_params(test_size)
 
-        i = 0
         unique_users = self.__train_news_users["user_id"].unique()
         total = len(unique_users)
 
-        for user_id in unique_users:
-            i = i + 1
-            print("", end="Training progress: {0:.2f}%\r".format(float((i / total) * 100)), flush=True)
+        for user_id in tqdm(unique_users, desc="Training..."):
             self.__calculate_user_reputation(user_id)
+
+        for user_id in tqdm(unique_users, desc="Adding followed users data..."):
+            user_prob_alpha, user_prob_um_beta = self.__get_improved_user_reputation(user_id)
+            self.__users.loc[self.__users["user_id"] == user_id, "probAlphaN"] = user_prob_alpha
+            self.__users.loc[self.__users["user_id"] == user_id, "probUmBetaN"] = user_prob_um_beta
 
         self.__assess()
 
@@ -42,7 +45,6 @@ class ICS:
         """
         Classify news based on Implicit Crowd Signals
         """
-
         users_who_shared_the_news = self.__get_users_who_shared(news_id)
 
         productAlphaN = 1.0
@@ -51,22 +53,22 @@ class ICS:
         productUmBetaN = 1.0
 
         for user_id in users_who_shared_the_news:
-            i = self.__users.loc[self.__users["user_id"] == user_id].index[0]
+            i = self.__get_user_index(user_id)
             productAlphaN = productAlphaN * self.__users.at[i, "probAlphaN"]
             productUmBetaN = productUmBetaN * self.__users.at[i, "probUmBetaN"]
 
         # bayesian inference
-        reputation_news_tn = (self.__omega * productAlphaN * productUmAlphaN) * 100
-        reputation_news_fn = ((1 - self.__omega) * productBetaN * productUmBetaN) * 100
+        reputation_news_not_fake = (self.__omega * productAlphaN * productUmAlphaN) * 100
+        reputation_news_fake = ((1 - self.__omega) * productBetaN * productUmBetaN) * 100
 
         # calculate probability grade of the prediction
-        total = reputation_news_tn + reputation_news_fn
+        total = reputation_news_not_fake + reputation_news_fake
 
-        if reputation_news_tn >= reputation_news_fn:
-            prob = reputation_news_tn / total
+        if reputation_news_not_fake >= reputation_news_fake:
+            prob = reputation_news_not_fake / total
             return 0, prob  # news classified as not fake
         else:
-            prob = reputation_news_fn / total
+            prob = reputation_news_fake / total
             return 1, prob  # news classified as fake
 
     def __init_params(self, test_size):
@@ -81,9 +83,9 @@ class ICS:
                                                                          stratify=labels)
 
         # store in 'self.__train_news_users' the news posted by each user
-        self.__train_news_users = pd.merge(self.__X_train_news, self.__news_users, left_on="id_news",
-                                           right_on="id_news")
-        self.__test_news_users = pd.merge(self.__X_test_news, self.__news_users, left_on="id_news", right_on="id_news")
+        self.__train_news_users = pd.merge(self.__X_train_news, self.__news_users, left_on="news_id",
+                                           right_on="news_id")
+        self.__test_news_users = pd.merge(self.__X_test_news, self.__news_users, left_on="news_id", right_on="news_id")
 
         # count fake and not fake news in the train dataset
         self.__qtd_V = self.__news["is_fake"].value_counts()[0]
@@ -118,9 +120,9 @@ class ICS:
         Assessment step: assess news based on each user parameters obtained on training step
         """
         predicted_labels = []
-        unique_news_ids = self.__test_news_users["id_news"].unique()
+        unique_news_ids = self.__test_news_users["news_id"].unique()
 
-        for news_id in unique_news_ids:
+        for news_id in tqdm(unique_news_ids, desc="Assessing trained model..."):
             users_who_shared_the_news = self.__get_users_who_shared(news_id)
 
             productAlphaN = 1.0
@@ -129,24 +131,30 @@ class ICS:
             productUmBetaN = 1.0
 
             for user_id in users_who_shared_the_news:
-                user_prob_alpha, user_prob_um_beta = self.__get_user_probs(user_id)
+                index = self.__get_user_index(user_id)
+
+                user_prob_alpha = self.__users.at[index, "probAlphaN"]
+                user_prob_um_beta = self.__users.at[index, "probUmBetaN"]
 
                 productAlphaN = productAlphaN * user_prob_alpha
                 productUmBetaN = productUmBetaN * user_prob_um_beta
 
             # bayesian inference
-            reputation_news_tn = (self.__omega * productAlphaN * productUmAlphaN) * 100
-            reputation_news_fn = ((1 - self.__omega) * productBetaN * productUmBetaN) * 100
+            reputation_news_not_fake = (self.__omega * productAlphaN * productUmAlphaN) * 100
+            reputation_news_fake = ((1 - self.__omega) * productBetaN * productUmBetaN) * 100
 
-            if reputation_news_tn >= reputation_news_fn:
+            if reputation_news_not_fake >= reputation_news_fake:
                 predicted_labels.append(0)
             else:
                 predicted_labels.append(1)
 
         # print the results of the confusion matrix and accuracy
         gt = self.__X_test_news["is_fake"].tolist()
+        print("Confusion matrix:")
         print(confusion_matrix(gt, predicted_labels))
-        print(accuracy_score(gt, predicted_labels))
+
+        score = accuracy_score(gt, predicted_labels)
+        print("Accuracy: {:.2f}%".format(score * 100))
 
     def __calculate_user_reputation(self, user_id):
         # get the labels of news posted by user
@@ -178,38 +186,47 @@ class ICS:
         self.__users.loc[self.__users["user_id"] == user_id, "isAccurate"] = \
             len(labels_of_news_shared_by_user) >= self.__news_shared_threshold
 
-    def __get_users_who_shared(self, id_news):
+    def __get_users_who_shared(self, news_id):
+        # TODO: check if list() is really necessary
+        is_the_news = self.__news_users["news_id"] == news_id
         return list(
-            self.__news_users["user_id"].loc[
-                self.__news_users["id_news"] == id_news
-            ]
+            self.__news_users["user_id"].loc[is_the_news]
         )
 
-    def __get_user_probs(self, userId):
-        i = self.__users.loc[self.__users["user_id"] == userId].index[0]
-        user_prob_alpha = self.__users.at[i, "probAlphaN"]
-        user_prob_um_beta = self.__users.at[i, "probUmBetaN"]
+    def __get_improved_user_reputation(self, user_id):
+        index = self.__get_user_index(user_id)
 
-        user_id = self.__users.at[i, "user_id"]
-        is_user = self.__users_followings['user_id'] == user_id
-        followings = self.__users_followings[is_user]
+        user_prob_alpha = self.__users.at[index, "probAlphaN"]
+        user_prob_um_beta = self.__users.at[index, "probUmBetaN"]
 
-        followings_alpha_probs = []
-        followings_um_beta_probs = []
+        users_followed = self.__get_users_followed_by(user_id)
 
-        for index, row in followings.iterrows():
-            following_id = row["following_id"]
+        users_followed_alpha_probs = []
+        users_followed_um_beta_probs = []
 
-            is_following = self.__users["user_id"] == following_id
-            following_row = self.__users[is_following]
+        for _, row in users_followed.iterrows():
+            followed_id = row["following_id"]
+            followed_user = self.__get_followed_user(followed_id)
 
-            if following_row.shape[0] > 0:
-                is_accurate = bool(following_row.iloc[0].loc["isAccurate"])
-                if is_accurate:
-                    followings_alpha_probs.append(following_row.iloc[0].loc["probAlphaN"])
-                    followings_um_beta_probs.append(following_row.iloc[0].loc["probUmBetaN"])
+            is_accurate = bool(followed_user.loc["isAccurate"])
+            if is_accurate:
+                users_followed_alpha_probs.append(followed_user.loc["probAlphaN"])
+                users_followed_um_beta_probs.append(followed_user.loc["probUmBetaN"])
 
-        prob_alpha = (user_prob_alpha + sum(followings_alpha_probs)) / (1 + len(followings_alpha_probs))
-        prob_um_beta = (user_prob_um_beta + sum(followings_um_beta_probs)) / (1 + len(followings_um_beta_probs))
+        prob_alpha = (user_prob_alpha + sum(users_followed_alpha_probs)) / (1 + len(users_followed_alpha_probs))
+        prob_um_beta = (user_prob_um_beta + sum(users_followed_um_beta_probs)) / (1 + len(users_followed_um_beta_probs))
 
         return prob_alpha, prob_um_beta
+
+    def __get_user_index(self, userId):
+        # TODO: actually, its just user_id - 1
+        is_the_user = self.__users["user_id"] == userId
+        return self.__users.loc[is_the_user].index[0]
+
+    def __get_users_followed_by(self, user_id):
+        is_the_user = self.__users_followings['user_id'] == user_id
+        return self.__users_followings[is_the_user]
+
+    def __get_followed_user(self, followed_id):
+        is_the_followed_user = self.__users["user_id"] == followed_id
+        return self.__users[is_the_followed_user].iloc[0]
