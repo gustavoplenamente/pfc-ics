@@ -28,7 +28,7 @@ class ICS:
         self.__init_params(test_size)
 
         i = 0
-        unique_users = self.__train_news_users["id_social_media_account"].unique()
+        unique_users = self.__train_news_users["user_id"].unique()
         total = len(unique_users)
 
         for user_id in unique_users:
@@ -51,7 +51,7 @@ class ICS:
         productUmBetaN = 1.0
 
         for user_id in users_who_shared_the_news:
-            i = self.__users.loc[self.__users["id_social_media_account"] == user_id].index[0]
+            i = self.__users.loc[self.__users["user_id"] == user_id].index[0]
             productAlphaN = productAlphaN * self.__users.at[i, "probAlphaN"]
             productUmBetaN = productUmBetaN * self.__users.at[i, "probUmBetaN"]
 
@@ -71,12 +71,12 @@ class ICS:
 
     def __init_params(self, test_size):
 
-        news = self.__news[self.__news['ground_truth_label'].notnull()]
+        news = self.__news[self.__news['is_fake'].notnull()]
         if not len(news.index):
             raise Exception("No news provided")
 
         # divide 'self.__news_users' in train and test
-        labels = news["ground_truth_label"]
+        labels = news["is_fake"]
         self.__X_train_news, self.__X_test_news, _, _ = train_test_split(news, labels, test_size=test_size,
                                                                          stratify=labels)
 
@@ -86,12 +86,12 @@ class ICS:
         self.__test_news_users = pd.merge(self.__X_test_news, self.__news_users, left_on="id_news", right_on="id_news")
 
         # count fake and not fake news in the train dataset
-        self.__qtd_V = self.__news["ground_truth_label"].value_counts()[0]
-        self.__qtd_F = self.__news["ground_truth_label"].value_counts()[1]
+        self.__qtd_V = self.__news["is_fake"].value_counts()[0]
+        self.__qtd_F = self.__news["is_fake"].value_counts()[1]
 
         # filter users which are also in test dataset
         self.__train_news_users = self.__train_news_users[
-            self.__train_news_users["id_social_media_account"].isin(self.__test_news_users["id_social_media_account"])]
+            self.__train_news_users["user_id"].isin(self.__test_news_users["user_id"])]
 
         self.__init_users_params()
 
@@ -144,15 +144,15 @@ class ICS:
                 predicted_labels.append(1)
 
         # print the results of the confusion matrix and accuracy
-        gt = self.__X_test_news["ground_truth_label"].tolist()
+        gt = self.__X_test_news["is_fake"].tolist()
         print(confusion_matrix(gt, predicted_labels))
         print(accuracy_score(gt, predicted_labels))
 
     def __calculate_user_reputation(self, user_id):
         # get the labels of news posted by user
         labels_of_news_shared_by_user = list(
-            self.__train_news_users["ground_truth_label"].loc[
-                self.__train_news_users["id_social_media_account"] == user_id
+            self.__train_news_users["is_fake"].loc[
+                self.__train_news_users["user_id"] == user_id
                 ]
         )
 
@@ -171,36 +171,36 @@ class ICS:
         probBetaN = betaN / (betaN + umBetaN)
         probUmBetaN = 1 - probBetaN
 
-        self.__users.loc[self.__users["id_social_media_account"] == user_id, "probAlphaN"] = probAlphaN
-        self.__users.loc[self.__users["id_social_media_account"] == user_id, "probBetaN"] = probBetaN
-        self.__users.loc[self.__users["id_social_media_account"] == user_id, "probUmAlphaN"] = probUmAlphaN
-        self.__users.loc[self.__users["id_social_media_account"] == user_id, "probUmBetaN"] = probUmBetaN
-        self.__users.loc[self.__users["id_social_media_account"] == user_id, "isAccurate"] = \
+        self.__users.loc[self.__users["user_id"] == user_id, "probAlphaN"] = probAlphaN
+        self.__users.loc[self.__users["user_id"] == user_id, "probBetaN"] = probBetaN
+        self.__users.loc[self.__users["user_id"] == user_id, "probUmAlphaN"] = probUmAlphaN
+        self.__users.loc[self.__users["user_id"] == user_id, "probUmBetaN"] = probUmBetaN
+        self.__users.loc[self.__users["user_id"] == user_id, "isAccurate"] = \
             len(labels_of_news_shared_by_user) >= self.__news_shared_threshold
 
     def __get_users_who_shared(self, id_news):
         return list(
-            self.__news_users["id_social_media_account"].loc[
+            self.__news_users["user_id"].loc[
                 self.__news_users["id_news"] == id_news
             ]
         )
 
     def __get_user_probs(self, userId):
-        i = self.__users.loc[self.__users["id_social_media_account"] == userId].index[0]
+        i = self.__users.loc[self.__users["user_id"] == userId].index[0]
         user_prob_alpha = self.__users.at[i, "probAlphaN"]
         user_prob_um_beta = self.__users.at[i, "probUmBetaN"]
 
-        user_original_id = self.__users.at[i, "id_original"]
-        is_user = self.__users_followings['user_original_id'] == user_original_id
+        user_id = self.__users.at[i, "user_id"]
+        is_user = self.__users_followings['user_id'] == user_id
         followings = self.__users_followings[is_user]
 
         followings_alpha_probs = []
         followings_um_beta_probs = []
 
         for index, row in followings.iterrows():
-            following_original_id = row["following_original_id"]
+            following_id = row["following_id"]
 
-            is_following = self.__users["id_original"] == following_original_id
+            is_following = self.__users["user_id"] == following_id
             following_row = self.__users[is_following]
 
             if following_row.shape[0] > 0:
