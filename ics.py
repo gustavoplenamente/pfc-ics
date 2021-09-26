@@ -11,7 +11,8 @@ def get_dataset(dataset_name: str):
 
 class ICS:
 
-    def __init__(self, laplace_smoothing=0.01, omega=0.5, news_shared_threshold=5):
+    def __init__(self, laplace_smoothing=0.01, omega=0.5, news_shared_threshold=5,
+                 followers_weight=0.5, followed_by_weight=1.0):
 
         self.__users = get_dataset("users.csv")
         self.__news = get_dataset("news.csv")
@@ -21,6 +22,8 @@ class ICS:
         self.__smoothing = laplace_smoothing
         self.__omega = omega
         self.__news_shared_threshold = news_shared_threshold
+        self.__followers_weight = followers_weight
+        self.__followed_by_weight = followed_by_weight
 
     def fit(self, test_size=0.3):
         """
@@ -203,11 +206,8 @@ class ICS:
         followed_by_user_alpha_probs, followed_by_user_um_beta_probs = self.__get_friends_reputation(
             user_id, friend_type="followed_by")
 
-        prob_alpha = (user_prob_alpha + sum(followers_alpha_probs) + sum(followed_by_user_alpha_probs)) / \
-                     (1 + len(followers_alpha_probs) + len(followed_by_user_alpha_probs))
-
-        prob_um_beta = (user_prob_um_beta + sum(followers_um_beta_probs) + sum(followed_by_user_alpha_probs)) / \
-                       (1 + len(followers_um_beta_probs) + len(followed_by_user_alpha_probs))
+        prob_alpha = self.__weight_prob_mean(user_prob_alpha, followers_alpha_probs, followed_by_user_alpha_probs)
+        prob_um_beta = self.__weight_prob_mean(user_prob_um_beta, followers_um_beta_probs, followed_by_user_alpha_probs)
 
         return prob_alpha, prob_um_beta
 
@@ -253,3 +253,11 @@ class ICS:
                 friends_um_beta_probs.append(friend_user.loc["probUmBetaN"])
 
         return friends_alpha_probs, friends_um_beta_probs
+
+    def __weight_prob_mean(self, user_prob, followers_probs, followed_by_probs):
+        return (user_prob
+                + self.__followers_weight * sum(followers_probs)
+                + self.__followed_by_weight * sum(followed_by_probs)) / \
+               (1
+                + self.__followers_weight * len(followers_probs)
+                + self.__followed_by_weight * len(followed_by_probs))
