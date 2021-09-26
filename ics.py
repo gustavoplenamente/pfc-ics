@@ -27,19 +27,17 @@ class ICS:
         Training step: calculate the parameters of each user based on Implicit Crowd Signals
         """
         self.__init_params(test_size)
-
         unique_users = self.__train_news_users["user_id"].unique()
-        total = len(unique_users)
 
         for user_id in tqdm(unique_users, desc="Training..."):
             self.__calculate_user_reputation(user_id)
 
-        for user_id in tqdm(unique_users, desc="Adding followed users data..."):
+        for user_id in tqdm(unique_users, desc="Adding friends data..."):
             user_prob_alpha, user_prob_um_beta = self.__get_improved_user_reputation(user_id)
             self.__users.loc[self.__users["user_id"] == user_id, "probAlphaN"] = user_prob_alpha
             self.__users.loc[self.__users["user_id"] == user_id, "probUmBetaN"] = user_prob_um_beta
 
-        self.__assess()
+        return self.__assess()
 
     def predict(self, news_id):
         """
@@ -156,6 +154,8 @@ class ICS:
         score = accuracy_score(gt, predicted_labels)
         print("Accuracy: {:.2f}%".format(score * 100))
 
+        return score
+
     def __calculate_user_reputation(self, user_id):
         # get the labels of news posted by user
         labels_of_news_shared_by_user = list(
@@ -199,22 +199,15 @@ class ICS:
         user_prob_alpha = self.__users.at[index, "probAlphaN"]
         user_prob_um_beta = self.__users.at[index, "probUmBetaN"]
 
-        users_followed = self.__get_users_followed_by(user_id)
+        followers_alpha_probs, followers_um_beta_probs = self.__get_friends_reputation(user_id, friend_type="follower")
+        followed_by_user_alpha_probs, followed_by_user_um_beta_probs = self.__get_friends_reputation(
+            user_id, friend_type="followed_by")
 
-        users_followed_alpha_probs = []
-        users_followed_um_beta_probs = []
+        prob_alpha = (user_prob_alpha + sum(followers_alpha_probs) + sum(followed_by_user_alpha_probs)) / \
+                     (1 + len(followers_alpha_probs) + len(followed_by_user_alpha_probs))
 
-        for _, row in users_followed.iterrows():
-            followed_id = row["following_id"]
-            followed_user = self.__get_followed_user(followed_id)
-
-            is_accurate = bool(followed_user.loc["isAccurate"])
-            if is_accurate:
-                users_followed_alpha_probs.append(followed_user.loc["probAlphaN"])
-                users_followed_um_beta_probs.append(followed_user.loc["probUmBetaN"])
-
-        prob_alpha = (user_prob_alpha + sum(users_followed_alpha_probs)) / (1 + len(users_followed_alpha_probs))
-        prob_um_beta = (user_prob_um_beta + sum(users_followed_um_beta_probs)) / (1 + len(users_followed_um_beta_probs))
+        prob_um_beta = (user_prob_um_beta + sum(followers_um_beta_probs) + sum(followed_by_user_alpha_probs)) / \
+                       (1 + len(followers_um_beta_probs) + len(followed_by_user_alpha_probs))
 
         return prob_alpha, prob_um_beta
 
@@ -230,3 +223,33 @@ class ICS:
     def __get_followed_user(self, followed_id):
         is_the_followed_user = self.__users["user_id"] == followed_id
         return self.__users[is_the_followed_user].iloc[0]
+
+    def __get_users_followers(self, user_id):
+        follows_the_user = self.__users_followings['following_id'] == user_id
+        return self.__users_followings[follows_the_user]
+
+    def __get_follower(self, follower_id):
+        is_the_follower = self.__users["user_id"] == follower_id
+        return self.__users[is_the_follower].iloc[0]
+
+    def __get_friends_reputation(self, user_id, friend_type):
+        if friend_type == "follower":
+            friends = self.__get_users_followers(user_id)
+        elif friend_type == "followed_by":
+            friends = self.__get_users_followed_by(user_id)
+        else:
+            raise ValueError(f"Invalid friend_type provided: '{friend_type}'. "
+                             "Value should be 'follower' or 'followed_by'.")
+        friends_alpha_probs = []
+        friends_um_beta_probs = []
+
+        for _, row in friends.iterrows():
+            friend_id = row["following_id"]
+            friend_user = self.__get_followed_user(friend_id)
+
+            is_accurate = bool(friend_user.loc["isAccurate"])
+            if is_accurate:
+                friends_alpha_probs.append(friend_user.loc["probAlphaN"])
+                friends_um_beta_probs.append(friend_user.loc["probUmBetaN"])
+
+        return friends_alpha_probs, friends_um_beta_probs
