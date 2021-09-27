@@ -12,7 +12,7 @@ def get_dataset(dataset_name: str):
 class ICS:
 
     def __init__(self, laplace_smoothing=0.01, omega=0.5, news_shared_threshold=5,
-                 followers_weight=0.5, followed_by_weight=1.0):
+                 followers_weight=0.5, followed_by_weight=0.5):
 
         self.__users = get_dataset("users.csv")
         self.__news = get_dataset("news.csv")
