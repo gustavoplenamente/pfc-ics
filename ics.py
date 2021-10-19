@@ -151,7 +151,7 @@ class ICS:
 
         # print the results of the confusion matrix and accuracy
         gt = self.__X_test_news["is_fake"].tolist()
-        print("Confusion matrix:")
+        print("\nConfusion matrix:")
         print(confusion_matrix(gt, predicted_labels))
 
         score = accuracy_score(gt, predicted_labels)
